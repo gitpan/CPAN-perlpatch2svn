@@ -1,4 +1,4 @@
-#!perl
+#!/usr/bin/perl
 
 =head1 NAME
 
@@ -72,7 +72,7 @@ Written by Rafael Garcia-Suarez.
 This program is free software; you may redistribute it and/or modify it under
 the same terms as Perl itself.
 
-C<$Id$>
+C<$Id: perlpatch2svn 10 2002-10-20 22:06:33Z rafael $>
 
 =head1 SEE ALSO
 
@@ -93,7 +93,7 @@ our $TMPLOGFILE = "/tmp/logforsvn.$$";
 #	contains patches to files in other branches)
 our $PATCH = "patch -p1 -t";
 
-our $VERSION = '0.1';
+our $VERSION = '0.2';
 
 if (@ARGV == 1 && $ARGV[0] =~ /^--?[hv]/) {
     die <<USAGE;

@@ -1,0 +1,13 @@
+perlpatch2svn v0.2
+==================
+
+A program to import bleadperl patches into a Subversion repository.
+
+To install it, the usual mantra works, but it's perhaps simpler
+to directly copy the perlpatch2svn script to the appropriate location.
+If you want to make it executable, please check the shebang line as well.
+
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
+Copyright (C) 2002 Rafael Garcia-Suarez
