@@ -1,4 +1,18 @@
 ------------------------------------------------------------------------
+rev 14:  rafael | 2002-10-21 23:11:37 +0200 (Mon, 21 Oct 2002) | 1 line
+
+Add a test program, that verifies if perlpatch2svn compiles
+------------------------------------------------------------------------
+rev 13:  rafael | 2002-10-21 23:04:03 +0200 (Mon, 21 Oct 2002) | 3 lines
+
+Minor documentation and formatting tweaks
+Fix : now the mails from perl5-changes can be directly fed to perlpatch2svn
+
+------------------------------------------------------------------------
+rev 11:  rafael | 2002-10-21 00:08:16 +0200 (Mon, 21 Oct 2002) | 1 line
+
+Release CPAN-perlpatch2svn 0.2
+------------------------------------------------------------------------
 rev 10:  rafael | 2002-10-21 00:06:33 +0200 (Mon, 21 Oct 2002) | 1 line
 
 Add a README file (for CPAN distribution)

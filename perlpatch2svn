@@ -8,7 +8,7 @@ perlpatch2svn - Import bleadperl patches into a Subversion repository
 
     perlpatch2svn [patchfiles...]
 
-=head2 DESCRIPTION
+=head1 DESCRIPTION
 
 This program reads a list of patches applied to the bleadperl source trunk and
 applies them to a local Subversion repository.
@@ -36,7 +36,8 @@ Here's the list of commands I used to create a Subversion repository with perl
     $ cd bleadperl-wc
 
 Then, I set the property C<svn:eol-type> to C<native> on files that contain
-CRLF line endings : (warning, shell hackery involved)
+CRLF line endings : (warning, shell hackery involved -- ^M is a real ctrl-M
+character)
 
     $ svn propset svn:eol-style native `grep -rl '^M' * | fgrep -v .svn`
     $ svn commit -m 'Force CRLF files as LF'
@@ -65,6 +66,9 @@ Subversion working copy, because it creates spurious C<.svn> directories.
 Similarly, C<make distclean> removes too much files, including a few files
 in the C<.svn> directories, thus corrupting the working copy.
 
+A workaround, if your system supports it, is to build outside the source
+tree, via the C<-Dmksymlinks> Configure option.
+
 =head1 AUTHOR
 
 Written by Rafael Garcia-Suarez.
@@ -72,7 +76,7 @@ Written by Rafael Garcia-Suarez.
 This program is free software; you may redistribute it and/or modify it under
 the same terms as Perl itself.
 
-C<$Id: perlpatch2svn 10 2002-10-20 22:06:33Z rafael $>
+C<$Id: perlpatch2svn 13 2002-10-21 21:04:03Z rafael $>
 
 =head1 SEE ALSO
 
@@ -93,7 +97,7 @@ our $TMPLOGFILE = "/tmp/logforsvn.$$";
 #	contains patches to files in other branches)
 our $PATCH = "patch -p1 -t";
 
-our $VERSION = '0.2';
+our $VERSION = '0.3';
 
 if (@ARGV == 1 && $ARGV[0] =~ /^--?[hv]/) {
     die <<USAGE;
@@ -130,7 +134,7 @@ while (<>) {
     if (!$curpatch) {
 	if (/^Change (\d+)/) {
 	    $patchlog{$curpatch = $1} = $_;
-	}
+	} else { next }
 	while (<>) {
 	    last if /^Affected files/;
 	    $patchlog{$curpatch} .= $_;
