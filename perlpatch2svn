@@ -6,7 +6,7 @@ perlpatch2svn - Import bleadperl patches into a Subversion repository
 
 =head1 SYNOPSIS
 
-    perlpatch2svn [patchfiles...]
+    perlpatch2svn [-f] [patchfiles...]
 
 =head1 DESCRIPTION
 
@@ -21,6 +21,11 @@ p4genpatch utility.
 You must run this program from the root of source tree in the subversion
 working copy you want to update. The patchfiles can be given on the
 command-line; if not, perlpatch2svn reads patches from the standard input.
+
+perlpatch2svn will skip the patches that have been already applied. To do this,
+he scans the changelog of the Subversion working copy for the last Perforce
+patch number. This means that you should apply patches from Perforce in order.
+The -f (force) option disables this behavior.
 
 =head2 Create the Subversion repository
 
@@ -50,24 +55,27 @@ CRLF line endings must be restored when a source tarball is to be released
 
 And then, to import the patches :
 
-    $ cd bleadperl-wc
-    $ zcat bleadperl-patches/* | perlpatch2svn
+    $ zcat /path/to/bleadperl-patches/* | perlpatch2svn
 
 =head1 TODO
+
+Binary files are not handled, since they don't appear in patches.
+It's possible to handle them by querying the Perforce depot.
 
 An option, or another program, that performs a similar task, but for
 the whole bleadperl Perforce depot -- that is, with the branches.
 
 =head1 BUGS
 
-As of bleadperl @18039, the installation process of perl corrupts the
-Subversion working copy, because it creates spurious C<.svn> directories.
+As of bleadperl @18039, you can't build perl from within your Subversion
+working copy, because the installation process of perl corrupts it, by
+creating spurious C<.svn> directories.
 
 Similarly, C<make distclean> removes too much files, including a few files
 in the C<.svn> directories, thus corrupting the working copy.
 
-A workaround, if your system supports it, is to build outside the source
-tree, via the C<-Dmksymlinks> Configure option.
+Until MakeMaker is fixed, a workaround, if your system supports it, is to
+build outside the source tree, via the C<-Dmksymlinks> Configure option.
 
 =head1 AUTHOR
 
@@ -76,7 +84,7 @@ Written by Rafael Garcia-Suarez.
 This program is free software; you may redistribute it and/or modify it under
 the same terms as Perl itself.
 
-C<$Id: perlpatch2svn 13 2002-10-21 21:04:03Z rafael $>
+C<$Id: perlpatch2svn 18 2002-10-25 20:23:37Z rafael $>
 
 =head1 SEE ALSO
 
@@ -87,42 +95,50 @@ perlhack(3), svn(1), and Porting/p4genpatch in the perl source distribution.
 use strict;
 use warnings;
 
+use Getopt::Std;
+use File::Basename;
+
+getopts('fh');
+
 # Temporary file
 our $TMPLOGFILE = "/tmp/logforsvn.$$";
 
 # The patch command
 #   -p1 implies that you are in the working copy, at the root of the source
 #	tree, when you run this command
-#   -t to skip patches to non-existent files (in the case the patch files
-#	contains patches to files in other branches)
-our $PATCH = "patch -p1 -t";
+our $PATCH = "patch -p1";
 
-our $VERSION = '0.3';
+our $VERSION = '0.4';
 
-if (@ARGV == 1 && $ARGV[0] =~ /^--?[hv]/) {
+if (our $opt_h) {
     die <<USAGE;
 $0 v$VERSION
+Usage :
+    $0 [-f] patchfiles...
 USAGE
 }
 
 # Use svn log to find the number of the last patch that was applied to this
-# working copy
+# working copy -- we look at the last applied patch
 
 my $lastpatch = 0;
-open my $svnlog, 'svn log |'
-    or die "Can't fork 'svn log': $!\n";
-while (<$svnlog>) {
-    if (/^Change (\d+) by /) {
-	$lastpatch = $1;
-	last;
+if (not our $opt_f) {
+    open my $svnlog, 'svn log |'
+	or die "Can't fork 'svn log': $!\n";
+    while (<$svnlog>) {
+	if (/^Change (\d+) by /) {
+	    $lastpatch = $1;
+	    last;
+	}
     }
+    close $svnlog;
+    print "Last applied patch was #$lastpatch\n" if $lastpatch;
 }
-close $svnlog;
-print "Last applied patch was #$lastpatch\n" if $lastpatch;
 
 # Slurps the patches
 
 my $curpatch = 0;
+my $curbranch = '';
 my %patchlog = ();
 my %patches = ();
 my %deleted = ();
@@ -132,21 +148,22 @@ my %edited = ();
 while (<>) {
     if (/^End of Patch\.$/) { $curpatch = 0 ; next }
     if (!$curpatch) {
-	if (/^Change (\d+)/) {
-	    $patchlog{$curpatch = $1} = $_;
+	if (/^Change (\d+) by /) {
+	    if ($1 > $lastpatch) {
+		$patchlog{$curpatch = $1} = $_;
+	    } else {
+		print "Skipping patch #$1, already applied\n";
+		next;
+	    }
 	} else { next }
 	while (<>) {
-	    last if /^Affected files/;
-	    $patchlog{$curpatch} .= $_;
-	}
-	$patchlog{$curpatch} =~ s/\n+\z//;
-	while (<>) {
 	    last if (/^Differences/);
-	    if (m[^\.\.\. //depot/perl/(.*?)#\d+ (\w+)]) {
-		if ($2 eq 'edit') {
+	    $patchlog{$curpatch} .= $_;
+	    if (m[^\.\.\.+ //depot/perl/(.*?)#\d+ (\w+)]) {
+		if ($2 eq 'edit' || $2 eq 'integrate') {
 		    $edited{$curpatch} = [] if !ref $edited{$curpatch};
 		    push @{$edited{$curpatch}}, $1;
-		} elsif ($2 eq 'add') {
+		} elsif ($2 eq 'add' || $2 eq 'branch') {
 		    $added{$curpatch} = [] if !ref $added{$curpatch};
 		    push @{$added{$curpatch}}, $1;
 		} elsif ($2 eq 'delete') {
@@ -155,20 +172,48 @@ while (<>) {
 		}
 	    }
 	}
+	$patchlog{$curpatch} =~ s/\n+\z//;
 	$patches{$curpatch} = '';
 	next;
+    } else {
+	if (m[==== //depot/([^/]*?)/([^#]+)#\d+ \((.*?)\)]) {
+	    $curbranch = $1;
+	    my $f = $2;
+	    my $type = $3;
+	    if ($type !~ /text/ || $type =~ /binary|ktext/) {
+		warn "***WARNING*** patch #$curpatch contains"
+		    ." binary file $f, skipped\n";
+		@{$added{$curpatch}}  = grep $_ ne $f, @{$added{$curpatch}};
+		@{$edited{$curpatch}} = grep $_ ne $f, @{$edited{$curpatch}};
+	    }
+	}
+	# Only take into account the patches to files in the trunk
+	$patches{$curpatch} .= $_ if $curbranch eq "perl";
     }
-    $patches{$curpatch} .= $_;
 }
 
 # Apply the patches
 
 for my $patch (sort { $a <=> $b } keys %patches) {
-    if ($patch <= $lastpatch) {
-	print "Skipping patch #$patch, already applied\n";
+    print "About to import patch #$patch...\n";
+    my @targets = ();
+    if (ref($deleted{$patch}) && @{ $deleted{$patch} }) {
+	# Delete only things that exist
+	@{ $deleted{$patch} } = grep -e, @{ $deleted{$patch} };
+	push @targets, @{ $deleted{$patch} };
+	# TODO there may be additionnal directories to delete
+    }
+    if (ref($added{$patch}) && @{ $added{$patch} }) {
+	unshift @{ $added{$patch} }, get_dirs_to_add( @{ $added{$patch} } );
+	push @targets, @{ $added{$patch} };
+    }
+    if (ref($edited{$patch}) && @{ $edited{$patch} }) {
+	push @targets, @{ $edited{$patch} };
+    }
+    if (@targets == 0) {
+	warn "***WARNING*** Skipping patch #$patch, is empty\n";
 	next;
     }
-    print "About to import patch #$patch...\n";
     open my $logfh, ">$TMPLOGFILE"
 	or die "Can't write to $TMPLOGFILE: $!\n";
     print $logfh $patchlog{$patch};
@@ -178,22 +223,33 @@ for my $patch (sort { $a <=> $b } keys %patches) {
     print $patchfh $patches{$patch};
     close $patchfh
 	or warn "Error closing patch: $!\n";
-    my @targets = ();
     if (ref($deleted{$patch}) && @{ $deleted{$patch} }) {
 	system(svn => 'rm', @{ $deleted{$patch} })
-	    and die "Error executing svn: $!,$?\n";
-	push @targets, @{ $deleted{$patch} };
+	    and die "Error executing svn rm : $!,$?\n";
     }
     if (ref($added{$patch}) && @{ $added{$patch} }) {
 	system(svn => 'add', @{ $added{$patch} })
-	    and die "Error executing svn: $!,$?\n";
-	push @targets, @{ $added{$patch} };
-    }
-    if (ref($edited{$patch}) && @{ $edited{$patch} }) {
-	push @targets, @{ $edited{$patch} };
+	    and die "Error executing svn add : $!,$?\n";
     }
     system(svn => 'commit', '-F', $TMPLOGFILE, @targets)
-	and die "Error executing svn: $!,$?\n";
+	and die "Error executing svn commit : $!,$?\n";
+}
+
+# Returns all directories to add to the repository
+# for a given set of added files
+
+sub get_dirs_to_add {
+    return () if @_ == 0;
+    my %dirs = ();
+    for my $file (@_) {
+	my $dir = dirname $file;
+	$dirs{$dir} = 1 unless $dirs{$dir} or -d $dir;
+    }
+    for my $dir (get_dirs_to_add( keys %dirs )) {
+	$dirs{$dir} = 1;
+    }
+    # Order is important
+    return sort { length $a <=> length $b } keys %dirs;
 }
 
 END { unlink $TMPLOGFILE; }

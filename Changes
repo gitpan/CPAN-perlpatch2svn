@@ -1,4 +1,27 @@
 ------------------------------------------------------------------------
+rev 17:  rafael | 2002-10-25 22:21:36 +0200 (Fri, 25 Oct 2002) | 6 lines
+
+Bug fixes :
+    - Add newly created directories
+    - Skip binary files (need p4 to integrate them)
+    - Handle branching and integrating from other branches
+    - Add the "Affected files" in the svn log message
+
+------------------------------------------------------------------------
+rev 16:  rafael | 2002-10-25 00:33:39 +0200 (Fri, 25 Oct 2002) | 7 lines
+
+Several changes :
+    - add a -f (force) option, to avoid skipping patches that appear to have
+      been already applied
+    - minor documentation improvements
+    - only take into account patches to files in the //depot/perl trunk
+      (the -t option to patch(1) is no longer necessary)
+
+------------------------------------------------------------------------
+rev 15:  rafael | 2002-10-21 23:12:30 +0200 (Mon, 21 Oct 2002) | 1 line
+
+Release CPAN-perlpatch2svn 0.3
+------------------------------------------------------------------------
 rev 14:  rafael | 2002-10-21 23:11:37 +0200 (Mon, 21 Oct 2002) | 1 line
 
 Add a test program, that verifies if perlpatch2svn compiles
