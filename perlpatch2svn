@@ -1,0 +1,197 @@
+#!perl
+
+=head1 NAME
+
+perlpatch2svn - Import bleadperl patches into a Subversion repository
+
+=head1 SYNOPSIS
+
+    perlpatch2svn [patchfiles...]
+
+=head2 DESCRIPTION
+
+This program reads a list of patches applied to the bleadperl source trunk and
+applies them to a local Subversion repository.
+
+The patches can be retrieved via the perl5-changes mailing list, or from one of
+the URLs documented in perlhack(3). Alternatively, if you have access to the
+bleadperl Perforce repository, they can be created with Andreas Koenig's
+p4genpatch utility.
+
+You must run this program from the root of source tree in the subversion
+working copy you want to update. The patchfiles can be given on the
+command-line; if not, perlpatch2svn reads patches from the standard input.
+
+=head2 Create the Subversion repository
+
+Here's the list of commands I used to create a Subversion repository with perl
+5.8.0 in it :
+
+    $ cd /home/rafael
+    $ tar zxf perl-5.8.0.tar.gz
+    $ svnadmin create bleadperl-svn
+    $ svn import file:///home/rafael/bleadperl-svn perl-5.8.0 perl \
+	-m 'Import Perl 5.8.0'
+    $ svn co file:///home/rafael/bleadperl-svn/perl bleadperl-wc
+    $ cd bleadperl-wc
+
+Then, I set the property C<svn:eol-type> to C<native> on files that contain
+CRLF line endings : (warning, shell hackery involved)
+
+    $ svn propset svn:eol-style native `grep -rl '^M' * | fgrep -v .svn`
+    $ svn commit -m 'Force CRLF files as LF'
+
+This previous command marks the said files as being always checked out with
+the line endings native to the current platform. On Unices, they will thus
+have LF line endings. This is necessary for patches to be applied to them.
+CRLF line endings must be restored when a source tarball is to be released
+(see Porting/makerel in the perl source distribution).
+
+And then, to import the patches :
+
+    $ cd bleadperl-wc
+    $ zcat bleadperl-patches/* | perlpatch2svn
+
+=head1 TODO
+
+An option, or another program, that performs a similar task, but for
+the whole bleadperl Perforce depot -- that is, with the branches.
+
+=head1 BUGS
+
+As of bleadperl @18039, the installation process of perl corrupts the
+Subversion working copy, because it creates spurious C<.svn> directories.
+
+Similarly, C<make distclean> removes too much files, including a few files
+in the C<.svn> directories, thus corrupting the working copy.
+
+=head1 AUTHOR
+
+Written by Rafael Garcia-Suarez.
+
+This program is free software; you may redistribute it and/or modify it under
+the same terms as Perl itself.
+
+C<$Id$>
+
+=head1 SEE ALSO
+
+perlhack(3), svn(1), and Porting/p4genpatch in the perl source distribution.
+
+=cut
+
+use strict;
+use warnings;
+
+# Temporary file
+our $TMPLOGFILE = "/tmp/logforsvn.$$";
+
+# The patch command
+#   -p1 implies that you are in the working copy, at the root of the source
+#	tree, when you run this command
+#   -t to skip patches to non-existent files (in the case the patch files
+#	contains patches to files in other branches)
+our $PATCH = "patch -p1 -t";
+
+our $VERSION = '0.1';
+
+if (@ARGV == 1 && $ARGV[0] =~ /^--?[hv]/) {
+    die <<USAGE;
+$0 v$VERSION
+USAGE
+}
+
+# Use svn log to find the number of the last patch that was applied to this
+# working copy
+
+my $lastpatch = 0;
+open my $svnlog, 'svn log |'
+    or die "Can't fork 'svn log': $!\n";
+while (<$svnlog>) {
+    if (/^Change (\d+) by /) {
+	$lastpatch = $1;
+	last;
+    }
+}
+close $svnlog;
+print "Last applied patch was #$lastpatch\n" if $lastpatch;
+
+# Slurps the patches
+
+my $curpatch = 0;
+my %patchlog = ();
+my %patches = ();
+my %deleted = ();
+my %added = ();
+my %edited = ();
+
+while (<>) {
+    if (/^End of Patch\.$/) { $curpatch = 0 ; next }
+    if (!$curpatch) {
+	if (/^Change (\d+)/) {
+	    $patchlog{$curpatch = $1} = $_;
+	}
+	while (<>) {
+	    last if /^Affected files/;
+	    $patchlog{$curpatch} .= $_;
+	}
+	$patchlog{$curpatch} =~ s/\n+\z//;
+	while (<>) {
+	    last if (/^Differences/);
+	    if (m[^\.\.\. //depot/perl/(.*?)#\d+ (\w+)]) {
+		if ($2 eq 'edit') {
+		    $edited{$curpatch} = [] if !ref $edited{$curpatch};
+		    push @{$edited{$curpatch}}, $1;
+		} elsif ($2 eq 'add') {
+		    $added{$curpatch} = [] if !ref $added{$curpatch};
+		    push @{$added{$curpatch}}, $1;
+		} elsif ($2 eq 'delete') {
+		    $deleted{$curpatch} = [] if !ref $deleted{$curpatch};
+		    push @{$deleted{$curpatch}}, $1;
+		}
+	    }
+	}
+	$patches{$curpatch} = '';
+	next;
+    }
+    $patches{$curpatch} .= $_;
+}
+
+# Apply the patches
+
+for my $patch (sort { $a <=> $b } keys %patches) {
+    if ($patch <= $lastpatch) {
+	print "Skipping patch #$patch, already applied\n";
+	next;
+    }
+    print "About to import patch #$patch...\n";
+    open my $logfh, ">$TMPLOGFILE"
+	or die "Can't write to $TMPLOGFILE: $!\n";
+    print $logfh $patchlog{$patch};
+    close $logfh;
+    open my $patchfh, "| $PATCH"
+	or die "Can't fork patch: $!\n";
+    print $patchfh $patches{$patch};
+    close $patchfh
+	or warn "Error closing patch: $!\n";
+    my @targets = ();
+    if (ref($deleted{$patch}) && @{ $deleted{$patch} }) {
+	system(svn => 'rm', @{ $deleted{$patch} })
+	    and die "Error executing svn: $!,$?\n";
+	push @targets, @{ $deleted{$patch} };
+    }
+    if (ref($added{$patch}) && @{ $added{$patch} }) {
+	system(svn => 'add', @{ $added{$patch} })
+	    and die "Error executing svn: $!,$?\n";
+	push @targets, @{ $added{$patch} };
+    }
+    if (ref($edited{$patch}) && @{ $edited{$patch} }) {
+	push @targets, @{ $edited{$patch} };
+    }
+    system(svn => 'commit', '-F', $TMPLOGFILE, @targets)
+	and die "Error executing svn: $!,$?\n";
+}
+
+END { unlink $TMPLOGFILE; }
+
+__END__
