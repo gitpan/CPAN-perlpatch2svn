@@ -8,4 +8,7 @@ WriteMakefile(
     NAME	    => "CPAN::$script",
     VERSION_FROM    => $script,
     EXE_FILES	    => [ $script ],
+    dist	    => {
+	PREOP	    => 'svn log > ${DISTVNAME}/Changes',
+    },
 );

@@ -1,4 +1,4 @@
-perlpatch2svn v0.4
+perlpatch2svn v0.5
 ==================
 
 A program to import bleadperl patches into a Subversion repository.
